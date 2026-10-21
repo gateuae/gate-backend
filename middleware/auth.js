@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import { getJwtSecret } from '../config/security.js';
 
 export function authenticateAdmin(req, res, next) {
   try {
@@ -12,13 +13,14 @@ export function authenticateAdmin(req, res, next) {
       return res.status(401).json({ success: false, message: 'Access denied. Invalid token.' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'super_market_secret_jwt_key_2026_secure');
+    const decoded = jwt.verify(token, getJwtSecret());
     req.admin = decoded;
     next();
   } catch (err) {
     return res.status(401).json({ 
       success: false, 
-      message: err.name === 'TokenExpiredError' ? 'Invalid or expired token.' : 'Invalid or expired token.' 
+      message: err.name === 'TokenExpiredError' ? 'Token expired. Please log in again.' : 'Invalid or expired token.' 
     });
   }
 }
+

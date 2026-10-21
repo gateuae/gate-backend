@@ -1,6 +1,7 @@
 import express from 'express';
 import pool from '../config/db.js';
 import { authenticateAdmin } from '../middleware/auth.js';
+import { sendContactNotification } from '../services/emailService.js';
 
 const router = express.Router();
 
@@ -15,6 +16,11 @@ router.post('/', async (req, res) => {
     const [result] = await pool.query(
       'INSERT INTO inquiries (name, email, branch, message, status) VALUES (?, ?, ?, ?, ?)',
       [name, email, branch || 'general', message, 'unread']
+    );
+
+    // Asynchronously send email notification without blocking response
+    sendContactNotification({ name, email, branch, message }).catch((err) =>
+      console.warn('Contact email notification error:', err.message)
     );
 
     return res.status(201).json({

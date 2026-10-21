@@ -3,6 +3,8 @@ import pool from '../config/db.js';
 import { authenticateAdmin } from '../middleware/auth.js';
 import { uploadResume, getFileUrl, setUploadFolder } from '../middleware/upload.js';
 import { generateSeoFiles } from '../services/seoGenerator.js';
+import { sendJobApplicationNotification } from '../services/emailService.js';
+
 
 const router = express.Router();
 
@@ -53,33 +55,67 @@ router.post('/upload-resume', setUploadFolder('jobs'), (req, res) => {
 // ==========================================
 router.get('/', async (req, res) => {
   try {
-    const { search, department, location, job_type } = req.query;
+    const { search, department, location, job_type, page, limit } = req.query;
 
-    let query = 'SELECT * FROM jobs WHERE is_active = 1';
+    let baseQuery = 'WHERE is_active = 1';
     const params = [];
 
     if (search && search.trim()) {
-      query += ' AND (title LIKE ? OR description LIKE ? OR department LIKE ?)';
+      baseQuery += ' AND (title LIKE ? OR description LIKE ? OR department LIKE ?)';
       const term = `%${search.trim()}%`;
       params.push(term, term, term);
     }
 
     if (department && department !== 'All') {
-      query += ' AND department = ?';
+      baseQuery += ' AND department = ?';
       params.push(department);
     }
 
     if (location && location !== 'All') {
-      query += ' AND location LIKE ?';
+      baseQuery += ' AND location LIKE ?';
       params.push(`%${location}%`);
     }
 
     if (job_type && job_type !== 'All') {
-      query += ' AND job_type = ?';
+      baseQuery += ' AND job_type = ?';
       params.push(job_type);
     }
 
-    query += ' ORDER BY created_at DESC';
+    const isPaginated = page !== undefined || limit !== undefined;
+    let query = `SELECT * FROM jobs ${baseQuery} ORDER BY created_at DESC`;
+    let paginationData = null;
+
+    if (isPaginated) {
+      const pageNum = Math.max(1, parseInt(page, 10) || 1);
+      const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+      const offset = (pageNum - 1) * limitNum;
+
+      const [countResult] = await pool.query(`SELECT COUNT(*) as total FROM jobs ${baseQuery}`, params);
+      const totalJobs = countResult[0]?.total || 0;
+      const totalPages = Math.ceil(totalJobs / limitNum);
+
+      query += ' LIMIT ? OFFSET ?';
+      const pagedParams = [...params, limitNum, offset];
+      const [rows] = await pool.query(query, pagedParams);
+
+      const jobs = rows.map((job) => ({
+        ...job,
+        responsibilities: parseJsonArray(job.responsibilities),
+        requirements: parseJsonArray(job.requirements),
+        benefits: parseJsonArray(job.benefits),
+      }));
+
+      return res.json({
+        success: true,
+        jobs,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          totalJobs,
+          totalPages,
+        },
+      });
+    }
 
     const [rows] = await pool.query(query, params);
 
@@ -193,6 +229,15 @@ router.post('/:id/apply', async (req, res) => {
       ]
     );
 
+    // Asynchronously dispatch email notification
+    sendJobApplicationNotification({
+      jobTitle: job.title,
+      applicantName: applicant_name.trim(),
+      email: email.trim().toLowerCase(),
+      phone: phone.trim(),
+      resumeUrl: resume_url.trim(),
+    }).catch((err) => console.warn('Job application email notification error:', err.message));
+
     return res.status(201).json({
       success: true,
       message: 'Your application has been received successfully! Our HR team will review your profile.',
@@ -303,15 +348,15 @@ router.post('/', authenticateAdmin, async (req, res) => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         finalSlug,
-        title.trim(),
-        department.trim(),
-        location.trim(),
+        (title || '').trim(),
+        (department || '').trim(),
+        (location || '').trim(),
         job_type?.trim() || 'Full-Time',
         experience_level?.trim() || '1 - 2 Years',
         salary_range?.trim() || '',
         parseInt(openings || 1, 10),
         deadline?.trim() || '',
-        description.trim(),
+        (description || '').trim(),
         respJson,
         reqJson,
         benJson,
@@ -397,16 +442,16 @@ router.put('/:id', authenticateAdmin, async (req, res) => {
         is_active = ?
        WHERE id = ?`,
       [
-        title.trim(),
-        slug.trim(),
-        department.trim(),
-        location.trim(),
+        (title || '').trim(),
+        (slug || '').trim(),
+        (department || '').trim(),
+        (location || '').trim(),
         job_type?.trim() || 'Full-Time',
         experience_level?.trim() || '1 - 2 Years',
         salary_range?.trim() || '',
         parseInt(openings || 1, 10),
         deadline?.trim() || '',
-        description.trim(),
+        (description || '').trim(),
         respJson,
         reqJson,
         benJson,

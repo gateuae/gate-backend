@@ -1,0 +1,37 @@
+# =========================================================================
+# GoDaddy Web Hosting Deluxe / cPanel - Node.js App Configuration (.htaccess)
+# Place this .htaccess in your backend root or your subdomain document root
+# =========================================================================
+
+# 1. Phusion Passenger Configuration (If using cPanel "Setup Node.js App")
+<IfModule mod_passenger.c>
+    PassengerAppRoot "/home/your_cpanel_username/backend"
+    PassengerBaseURI "/"
+    PassengerNodejs "/home/your_cpanel_username/nodevenv/backend/22/bin/node"
+    PassengerAppType node
+    PassengerStartupFile server.js
+    PassengerAppLogFile "/home/your_cpanel_username/backend/passenger.log"
+</IfModule>
+
+# 2. Apache Rewrite Engine & Authorization Header Pass-Through
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Ensure HTTPS
+    RewriteCond %{HTTPS} !=on
+    RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+    # CRITICAL: Forward Authorization Header to Node.js / Express
+    # By default Apache strips Bearer tokens. This rule preserves them for JWT authentication.
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    # Optional: Forward traffic to local Node.js port (if using Reverse Proxy mode instead of Passenger)
+    # RewriteRule ^(.*)$ http://127.0.0.1:5000/$1 [P,L]
+</IfModule>
+
+# 3. Security: Prevent Direct Access to Environment Files & Git
+<FilesMatch "^\.(env|git|htaccess)">
+    Order allow,deny
+    Deny from all
+</FilesMatch>

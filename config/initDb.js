@@ -135,9 +135,22 @@ export async function initializeDatabase() {
         benefits JSON,
         is_active BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_jobs_active_created (is_active, created_at),
+        INDEX idx_jobs_department (department)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    // Ensure performance indexes exist if table was already created
+    try {
+      const [existingIndexes] = await connection.query(`SHOW INDEX FROM jobs WHERE Key_name = 'idx_jobs_active_created'`);
+      if (existingIndexes.length === 0) {
+        await connection.query(`CREATE INDEX idx_jobs_active_created ON jobs (is_active, created_at)`);
+      }
+    } catch {
+      // Table might not exist yet or index already present
+    }
+
 
     // 9. Job Applications Table
     await connection.query(`
@@ -184,7 +197,7 @@ export async function initializeDatabase() {
       const hashedPassword = await bcrypt.hash('admin123', 10);
       await connection.query(
         'INSERT INTO admins (username, email, password) VALUES (?, ?, ?)',
-        ['admin', 'admin@gatehypermarket.ae', hashedPassword]
+        ['admin', 'marketing@gateuae.com', hashedPassword]
       );
       console.log('👤 Created default admin user: admin@gatehypermarket.ae (password: admin123)');
     }
