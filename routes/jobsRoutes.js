@@ -2,6 +2,7 @@ import express from 'express';
 import pool from '../config/db.js';
 import { authenticateAdmin } from '../middleware/auth.js';
 import { uploadResume, getFileUrl, setUploadFolder } from '../middleware/upload.js';
+import { uploadToUploadThing } from '../services/uploadthingService.js';
 import { generateSeoFiles } from '../services/seoGenerator.js';
 import { sendJobApplicationNotification } from '../services/emailService.js';
 
@@ -32,21 +33,31 @@ function parseJsonArray(val) {
 // PUBLIC: Resume Upload for Applicants
 // ==========================================
 router.post('/upload-resume', setUploadFolder('jobs'), (req, res) => {
-  uploadResume.single('resume')(req, res, (err) => {
+  uploadResume.single('resume')(req, res, async (err) => {
     if (err) {
       return res.status(400).json({ success: false, message: err.message || 'Resume upload failed.' });
     }
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'Please select a resume file to upload.' });
     }
-    const fileUrl = getFileUrl(req.file);
-    return res.json({
-      success: true,
-      message: 'Resume uploaded successfully.',
-      url: fileUrl,
-      filename: req.file.filename,
-      subfolder: req.file.subfolder || 'jobs',
-    });
+    try {
+      const result = await uploadToUploadThing(req.file, 'jobs');
+      return res.json({
+        success: true,
+        message: 'Resume uploaded successfully.',
+        url: result.url,
+        filename: result.filename,
+        key: result.key,
+        provider: result.provider,
+        subfolder: 'jobs',
+      });
+    } catch (uploadErr) {
+      console.error('Resume upload error:', uploadErr);
+      return res.status(500).json({
+        success: false,
+        message: uploadErr.message || 'Failed to upload resume.',
+      });
+    }
   });
 });
 

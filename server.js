@@ -22,6 +22,8 @@ import uploadRoutes from './routes/uploadRoutes.js';
 import jobsRoutes from './routes/jobsRoutes.js';
 import seoRoutes from './routes/seoRoutes.js';
 import heroBannerRoutes from './routes/heroBannerRoutes.js';
+import { createRouteHandler } from 'uploadthing/express';
+import { uploadRouter } from './uploadRouter.js';
 
 dotenv.config();
 
@@ -97,24 +99,6 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Static uploads directory & fallback
-const uploadsRoot = path.join(__dirname, 'uploads');
-app.use('/uploads', express.static(uploadsRoot));
-
-// Fallback: If an old flat /uploads/:filename is requested, check if it resides in any structured subfolder
-app.use('/uploads/:filename', (req, res, next) => {
-  const { filename } = req.params;
-  if (!filename) return next();
-  const subfolders = ['blogs', 'stores', 'jobs', 'flyers', 'hero-banners'];
-  for (const sub of subfolders) {
-    const candidate = path.join(uploadsRoot, sub, filename);
-    if (fs.existsSync(candidate)) {
-      return res.sendFile(candidate);
-    }
-  }
-  next();
-});
-
 // Database connection state tracker
 let isDatabaseReady = false;
 let databaseError = null;
@@ -162,6 +146,21 @@ app.use('/api/contact', contactRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/jobs', jobsRoutes);
 app.use('/api/hero-banners', heroBannerRoutes);
+
+// Mount UploadThing native Express endpoint
+const cleanUploadThingToken = process.env.UPLOADTHING_TOKEN
+  ? process.env.UPLOADTHING_TOKEN.trim().replace(/^['"]|['"]$/g, '')
+  : undefined;
+
+app.use(
+  '/api/uploadthing',
+  createRouteHandler({
+    router: uploadRouter,
+    config: {
+      token: cleanUploadThingToken,
+    },
+  })
+);
 
 // Error handler
 app.use((err, req, res, next) => {

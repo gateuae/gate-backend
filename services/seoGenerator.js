@@ -6,7 +6,7 @@ import pool from '../config/db.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const BASE_URL = process.env.SITE_URL || 'https://gatehypermarket.ae';
+const BASE_URL = process.env.SITE_URL || 'https://www.gateuae.com';
 
 function formatDate(date) {
   if (!date) return new Date().toISOString().split('T')[0];
@@ -38,7 +38,7 @@ export async function generateSeoFiles() {
             lat = parseFloat(parsed[0]) || lat;
             lng = parseFloat(parsed[1]) || lng;
           }
-        } catch {}
+        } catch { }
       }
       return { ...s, lat, lng };
     });
@@ -71,7 +71,7 @@ export async function generateSeoFiles() {
         try {
           settings[row.setting_key] = JSON.parse(val);
           continue;
-        } catch {}
+        } catch { }
       }
       settings[row.setting_key] = row.setting_value;
     }
@@ -255,7 +255,7 @@ Gate Hypermarket is an independent retail and grocery chain with four hypermarke
     let highlights = [];
     try {
       highlights = typeof s.highlights === 'string' ? JSON.parse(s.highlights) : s.highlights || [];
-    } catch {}
+    } catch { }
 
     llmsFullTxt += `### ${s.name}
 - City: ${s.city}
@@ -291,7 +291,7 @@ A: Job openings are listed at ${BASE_URL}/careers where applicants can submit th
         '@id': `${BASE_URL}/#organization`,
         name: 'Gate Hypermarket',
         url: BASE_URL,
-        logo: `${BASE_URL}/images/logo.png`,
+        logo: `${BASE_URL}/images/logo-full.png`,
         image: `${BASE_URL}/images/hero-banner.jpg`,
         description:
           settings.footer_about ||
