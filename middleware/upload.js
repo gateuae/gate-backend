@@ -1,25 +1,7 @@
 import multer from 'multer';
 import path from 'path';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-export const uploadDir = path.join(__dirname, '..', 'uploads');
 
 export const ALLOWED_UPLOAD_FOLDERS = ['blogs', 'stores', 'jobs', 'flyers', 'hero-banners'];
-
-// Ensure base upload directory and all subdirectories exist
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-for (const sub of ALLOWED_UPLOAD_FOLDERS) {
-  const subPath = path.join(uploadDir, sub);
-  if (!fs.existsSync(subPath)) {
-    fs.mkdirSync(subPath, { recursive: true });
-  }
-}
 
 export function resolveUploadSubfolder(req) {
   // 1. Explicit property set by route middleware
@@ -40,13 +22,12 @@ export function resolveUploadSubfolder(req) {
   if (url.includes('store')) return 'stores';
   if (url.includes('flyer') || url.includes('campaign')) return 'flyers';
 
-  return '';
+  return 'general';
 }
 
 export function getFileUrl(file) {
   if (!file) return '';
-  const sub = file.subfolder;
-  return sub ? `/uploads/${sub}/${file.filename}` : `/uploads/${file.filename}`;
+  return file.url || '';
 }
 
 export const setUploadFolder = (folder) => (req, res, next) => {
@@ -54,23 +35,8 @@ export const setUploadFolder = (folder) => (req, res, next) => {
   next();
 };
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const subfolder = resolveUploadSubfolder(req);
-    file.subfolder = subfolder;
-    const targetDir = subfolder ? path.join(uploadDir, subfolder) : uploadDir;
-    if (!fs.existsSync(targetDir)) {
-      fs.mkdirSync(targetDir, { recursive: true });
-    }
-    cb(null, targetDir);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const basename = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, '_');
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    cb(null, `${basename}-${uniqueSuffix}${ext}`);
-  },
-});
+// Use in-memory storage so uploads stream directly to UploadThing without touching local disk
+const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
   const allowedMime = [
@@ -91,14 +57,14 @@ const fileFilter = (req, file, cb) => {
   if (allowedMime.includes(file.mimetype.toLowerCase()) || allowedExts.includes(ext)) {
     cb(null, true);
   } else {
-    cb(new Error(`File "${file.originalname}" is not an accepted image (JPEG, PNG, WebP, GIF, SVG).`), false);
+    cb(new Error(`File "${file.originalname}" is not an accepted image format (JPEG, PNG, WebP, GIF, SVG).`), false);
   }
 };
 
 export const upload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 25 * 1024 * 1024 }, // 25MB limit per flyer image
+  limits: { fileSize: 32 * 1024 * 1024 }, // 32MB limit per image
 });
 
 const resumeFilter = (req, file, cb) => {
@@ -114,5 +80,5 @@ const resumeFilter = (req, file, cb) => {
 export const uploadResume = multer({
   storage,
   fileFilter: resumeFilter,
-  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB limit
+  limits: { fileSize: 16 * 1024 * 1024 }, // 16MB limit
 });

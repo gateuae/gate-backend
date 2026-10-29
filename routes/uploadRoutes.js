@@ -1,12 +1,13 @@
 import express from 'express';
-import { upload, getFileUrl, setUploadFolder } from '../middleware/upload.js';
+import { upload, resolveUploadSubfolder } from '../middleware/upload.js';
 import { authenticateAdmin } from '../middleware/auth.js';
+import { uploadToUploadThing, uploadMultipleToUploadThing } from '../services/uploadthingService.js';
 
 const router = express.Router();
 
 // POST /api/upload - Upload single image (supports ?folder=blogs|stores|flyers|jobs|hero-banners)
 router.post('/', authenticateAdmin, (req, res) => {
-  upload.single('image')(req, res, (err) => {
+  upload.single('image')(req, res, async (err) => {
     if (err) {
       console.error('Upload error:', err);
       return res.status(400).json({ success: false, message: err.message || 'File upload failed.' });
@@ -15,14 +16,25 @@ router.post('/', authenticateAdmin, (req, res) => {
       return res.status(400).json({ success: false, message: 'No file uploaded.' });
     }
 
-    const fileUrl = getFileUrl(req.file);
-    return res.json({
-      success: true,
-      message: 'File uploaded successfully.',
-      url: fileUrl,
-      filename: req.file.filename,
-      subfolder: req.file.subfolder || '',
-    });
+    try {
+      const subfolder = resolveUploadSubfolder(req) || 'general';
+      const result = await uploadToUploadThing(req.file, subfolder);
+      return res.json({
+        success: true,
+        message: 'File uploaded successfully.',
+        url: result.url,
+        filename: result.filename,
+        key: result.key,
+        provider: result.provider,
+        subfolder,
+      });
+    } catch (uploadErr) {
+      console.error('Upload error:', uploadErr);
+      return res.status(500).json({
+        success: false,
+        message: uploadErr.message || 'Failed to process file upload.',
+      });
+    }
   });
 });
 
@@ -37,7 +49,7 @@ router.post(
     next();
   },
   (req, res) => {
-    upload.array('images', 60)(req, res, (err) => {
+    upload.array('images', 60)(req, res, async (err) => {
       if (err) {
         console.error('Multiple upload error:', err);
         return res.status(400).json({ success: false, message: err.message || 'Multiple upload failed.' });
@@ -46,19 +58,22 @@ router.post(
         return res.status(400).json({ success: false, message: 'No files received for upload.' });
       }
 
-      const files = req.files.map((f, idx) => ({
-        url: getFileUrl(f),
-        filename: f.filename,
-        originalname: f.originalname,
-        page_number: idx + 1,
-        subfolder: f.subfolder || 'flyers',
-      }));
+      try {
+        const subfolder = resolveUploadSubfolder(req) || 'flyers';
+        const batchResult = await uploadMultipleToUploadThing(req.files, subfolder);
 
-      return res.json({
-        success: true,
-        message: `${files.length} file(s) uploaded successfully.`,
-        files,
-      });
+        return res.json({
+          success: true,
+          message: batchResult.message || `${batchResult.files.length} file(s) uploaded successfully.`,
+          files: batchResult.files,
+        });
+      } catch (uploadErr) {
+        console.error('Multiple upload error:', uploadErr);
+        return res.status(500).json({
+          success: false,
+          message: uploadErr.message || 'Failed to upload multiple files.',
+        });
+      }
     });
   }
 );

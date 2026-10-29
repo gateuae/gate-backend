@@ -1,16 +1,10 @@
 import express from 'express';
-import path from 'path';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
 import pool from '../config/db.js';
-import { upload, getFileUrl, setUploadFolder } from '../middleware/upload.js';
+import { upload, setUploadFolder } from '../middleware/upload.js';
 import { authenticateAdmin } from '../middleware/auth.js';
+import { uploadToUploadThing, deleteFileFromStorage } from '../services/uploadthingService.js';
 
 const router = express.Router();
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const uploadsDir = path.join(__dirname, '..', 'uploads');
 
 // Multer middleware for handling both desktop and mobile hero image files
 const uploadHeroFields = upload.fields([
@@ -19,22 +13,6 @@ const uploadHeroFields = upload.fields([
   { name: 'desktop_file', maxCount: 1 },
   { name: 'mobile_file', maxCount: 1 },
 ]);
-
-// Helper to safely delete file if it resides in local uploads
-function removeLocalUpload(fileUrl) {
-  if (!fileUrl || typeof fileUrl !== 'string') return;
-  if (fileUrl.startsWith('/uploads/')) {
-    const relPath = fileUrl.replace('/uploads/', '');
-    const fullPath = path.join(uploadsDir, relPath);
-    if (fs.existsSync(fullPath)) {
-      try {
-        fs.unlinkSync(fullPath);
-      } catch (err) {
-        console.warn('Failed to delete old banner image file:', err.message);
-      }
-    }
-  }
-}
 
 // -------------------------------------------------------------
 // 1. GET /api/hero-banners - Public / Admin list
@@ -115,20 +93,22 @@ router.get('/:id', async (req, res) => {
 // -------------------------------------------------------------
 // 4. POST /api/hero-banners/upload - Admin file upload helper
 // -------------------------------------------------------------
-router.post('/upload', authenticateAdmin, setUploadFolder('hero-banners'), upload.single('image'), (req, res) => {
+router.post('/upload', authenticateAdmin, setUploadFolder('hero-banners'), upload.single('image'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'No file uploaded.' });
     }
-    const fileUrl = getFileUrl(req.file);
+    const result = await uploadToUploadThing(req.file, 'hero-banners');
     return res.json({
       success: true,
-      url: fileUrl,
-      filename: req.file.filename,
+      url: result.url,
+      filename: result.filename,
+      key: result.key,
+      provider: result.provider,
     });
   } catch (error) {
     console.error('Upload hero banner image error:', error);
-    return res.status(500).json({ success: false, message: 'Image upload failed.' });
+    return res.status(500).json({ success: false, message: error.message || 'Image upload failed.' });
   }
 });
 
@@ -144,16 +124,16 @@ router.post('/', authenticateAdmin, setUploadFolder('hero-banners'), uploadHeroF
     let mobileImage = req.body.mobile_image;
 
     if (req.files) {
-      if (req.files.desktop_image?.[0]) {
-        desktopImage = getFileUrl(req.files.desktop_image[0]);
-      } else if (req.files.desktop_file?.[0]) {
-        desktopImage = getFileUrl(req.files.desktop_file[0]);
+      const desktopFile = req.files.desktop_image?.[0] || req.files.desktop_file?.[0];
+      if (desktopFile) {
+        const dRes = await uploadToUploadThing(desktopFile, 'hero-banners');
+        desktopImage = dRes.url;
       }
 
-      if (req.files.mobile_image?.[0]) {
-        mobileImage = getFileUrl(req.files.mobile_image[0]);
-      } else if (req.files.mobile_file?.[0]) {
-        mobileImage = getFileUrl(req.files.mobile_file[0]);
+      const mobileFile = req.files.mobile_image?.[0] || req.files.mobile_file?.[0];
+      if (mobileFile) {
+        const mRes = await uploadToUploadThing(mobileFile, 'hero-banners');
+        mobileImage = mRes.url;
       }
     }
 
@@ -213,27 +193,21 @@ router.put('/:id', authenticateAdmin, setUploadFolder('hero-banners'), uploadHer
     let mobileImage = req.body.mobile_image || current.mobile_image;
 
     if (req.files) {
-      if (req.files.desktop_image?.[0]) {
-        desktopImage = getFileUrl(req.files.desktop_image[0]);
-        if (current.desktop_image !== desktopImage) {
-          removeLocalUpload(current.desktop_image);
-        }
-      } else if (req.files.desktop_file?.[0]) {
-        desktopImage = getFileUrl(req.files.desktop_file[0]);
-        if (current.desktop_image !== desktopImage) {
-          removeLocalUpload(current.desktop_image);
+      const desktopFile = req.files.desktop_image?.[0] || req.files.desktop_file?.[0];
+      if (desktopFile) {
+        const dRes = await uploadToUploadThing(desktopFile, 'hero-banners');
+        desktopImage = dRes.url;
+        if (current.desktop_image && current.desktop_image !== desktopImage) {
+          await deleteFileFromStorage(current.desktop_image);
         }
       }
 
-      if (req.files.mobile_image?.[0]) {
-        mobileImage = getFileUrl(req.files.mobile_image[0]);
-        if (current.mobile_image !== mobileImage) {
-          removeLocalUpload(current.mobile_image);
-        }
-      } else if (req.files.mobile_file?.[0]) {
-        mobileImage = getFileUrl(req.files.mobile_file[0]);
-        if (current.mobile_image !== mobileImage) {
-          removeLocalUpload(current.mobile_image);
+      const mobileFile = req.files.mobile_image?.[0] || req.files.mobile_file?.[0];
+      if (mobileFile) {
+        const mRes = await uploadToUploadThing(mobileFile, 'hero-banners');
+        mobileImage = mRes.url;
+        if (current.mobile_image && current.mobile_image !== mobileImage) {
+          await deleteFileFromStorage(current.mobile_image);
         }
       }
     }
@@ -305,9 +279,9 @@ router.delete('/:id', authenticateAdmin, async (req, res) => {
     const { desktop_image, mobile_image } = rows[0];
     await pool.query('DELETE FROM hero_banners WHERE id = ?', [id]);
 
-    // Clean up local disk uploads if applicable
-    removeLocalUpload(desktop_image);
-    removeLocalUpload(mobile_image);
+    // Clean up uploads if applicable (UploadThing or local)
+    await deleteFileFromStorage(desktop_image);
+    await deleteFileFromStorage(mobile_image);
 
     return res.json({
       success: true,
